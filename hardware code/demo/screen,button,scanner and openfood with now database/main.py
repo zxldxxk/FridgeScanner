@@ -11,6 +11,7 @@ oled = ssd1306.SSD1306_I2C(128, 32, i2c)
 uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
 ssid = "iotlab"
 password = "modermodemet3"
+product_info = None
 
 
 # Connecting to wifi
@@ -101,20 +102,16 @@ def draw_date():
 def save_to_file():
     with open("data.txt", "a") as f:
         if product_info:
-            name = product_info.get("name_en", "Not found in database")
-            brand = product_info.get("brands","Not found in database")
-            quantity = product_info.get("product_quantity","Not found in database")
-            quantityunit = product_info.get("product_quantity_unit","Not found in database")
+            name = product_info.get("name", "N/A")
+            brand = product_info.get("brand", "N/A")
+            quantity = product_info.get("quantity", "N/A")
         else:
-            name = "Not found in database"
-            brand = "Not found in database"
-            quantity = "Not found in database"
-            quantityunit = "Not found in database"
-        f.write(f"{barcode},{day:02d}/{month:02d}/{year},{name},{brand},{quantity},{quantityunit}\n")
-        
+            name = brand = quantity = "N/A"
+
+        f.write(f"{barcode},{day:02d}/{month:02d}/{year},{name},{brand},{quantity}\n")        
         
 def fetch_product(barcode):
-    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json?fields=product_name,brands,quantity,quantityunit"
     
     try:
         response = urequests.get(url)
@@ -122,11 +119,11 @@ def fetch_product(barcode):
         response.close()
         
         if data.get("status") == 1:
-            product = data.get("Product", {})
+            product = data.get("product", {})
             
-            name = product.get("name_en", "Not found in database")
+            name = product.get("product_name", "Not found in database")
             brand = product.get("brands","Not found in database")
-            quantity = product.get("product_quantity","Not found in database")
+            quantity = product.get("quantity","Not found in database")
             quantityunit = product.get("product_quantity_unit","Not found in database")
             
             return {
@@ -165,7 +162,6 @@ while True:
                     oled.text("Scanned:", 0, 0)
                     oled.text(barcode[:16], 0, 12)
                     oled.show()
-                    
                     product_info = fetch_product(barcode)
                     oled.fill(0)
                     if product_info:
@@ -227,7 +223,8 @@ while True:
         day, month, year = 1, 1, 2026
         cursor = 0
         barcode = ""
-
+        product_info = None
         state = "WAIT_SCAN"
 
     time.sleep(0.05)
+
