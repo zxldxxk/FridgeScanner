@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "799397622719",
+    "firebase_url": "https://fridgescanner-1337-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "fridgescanner-1337",
+    "storage_bucket": "fridgescanner-1337.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:799397622719:android:92651a2ab93de4c5f0e70a",
+        "android_client_info": {
+          "package_name": "com.example.fridgescannerapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfXMpTvZm1oBGX9hUr9-kAnNySNU-b878"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

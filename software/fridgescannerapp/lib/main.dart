@@ -1,122 +1,374 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:fridgescannerapp/firebase_options.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+  options: DefaultFirebaseOptions.currentPlatform,
+);  runApp(const MyApp());
+}
+
+class Item {
+  final String id; // 👈 ADD THIS
+  final String name;
+  final String brand;
+  final String barcode;
+  final String quantity;
+  final DateTime expiryDate;
+  final DateTime? dateBought;
+
+  Item({
+    required this.id, // 👈 ADD
+    required this.name,
+    required this.brand,
+    required this.barcode,
+    required this.quantity,
+    required this.expiryDate,
+    this.dateBought,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'brand': brand,
+      'barcode': barcode,
+      'quantity': quantity,
+      'expiryDate': expiryDate.toIso8601String(),
+      'dateBought': dateBought?.toIso8601String(),
+    };
+  }
+
+  factory Item.fromMap(String id, Map<String, dynamic> data) {
+    return Item(
+      id: id, // 👈 STORE KEY
+      name: data['name'] ?? '',
+      brand: data['brand'] ?? '',
+      barcode: data['barcode'] ?? '',
+      quantity: data['quantity'] ?? '',
+      expiryDate: DateTime.parse(data['expiryDate']),
+      dateBought: data['dateBought'] != null
+          ? DateTime.parse(data['dateBought'])
+          : null,
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title: 'Fridge Scanner',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const HomePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _HomePageState extends State<HomePage> {
+  List<Item> items = [];
+  List<Item> filteredItems = [];
+  String searchQuery = "";
+@override
+void initState() {
+  super.initState();
 
-  void _incrementCounter() {
+  dbRef.onValue.listen((event) {
+    final data = event.snapshot.value;
+    print("RAW DATA: $data");
+
+    if (data == null) {
+      setState(() => items = []);
+      return;
+    }
+
+    final Map<dynamic, dynamic> map = data as Map;
+
+    final List<Item> loadedItems = [];
+
+map.forEach((key, value) {
+  final itemMap = Map<String, dynamic>.from(value);
+  loadedItems.add(Item.fromMap(key, itemMap));
+});
+
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      items = loadedItems;
+      filteredItems = loadedItems;
     });
+  });
+}
+
+void searchItems(String query) {
+  final results = items.where((item) {
+    final nameLower = item.name.toLowerCase();
+    final brandLower = item.brand.toLowerCase();
+    final searchLower = query.toLowerCase();
+
+    return nameLower.contains(searchLower) ||
+        brandLower.contains(searchLower);
+  }).toList();
+
+  setState(() {
+    searchQuery = query;
+    filteredItems = results;
+  });
+}
+
+  final DatabaseReference dbRef = FirebaseDatabase.instance.ref("fridgescanner");
+  int daysSinceBought(DateTime dateBought) {
+    return DateTime.now().difference(dateBought).inDays;
+  }
+
+  int daysUntilExpiry(DateTime expiryDate) {
+    return expiryDate.difference(DateTime.now()).inDays;
+  }
+void addItem(String name, String brand, String barcode, String quantity, DateTime expiryDate) {
+  final newRef = dbRef.push();
+
+  final newItem = Item(
+    id: newRef.key!, // 👈 IMPORTANT
+    name: name,
+    brand: brand,
+    barcode: barcode,
+    quantity: quantity,
+    expiryDate: expiryDate,
+    dateBought: DateTime.now(),
+  );
+
+  newRef.set(newItem.toMap());
+}
+
+void showAddItemDialog() {
+  TextEditingController nameController = TextEditingController();
+  TextEditingController brandController = TextEditingController();
+  TextEditingController barcodeController = TextEditingController();
+  TextEditingController quantityController = TextEditingController();
+
+  DateTime? selectedDate;
+
+  showDialog(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text("Add Item"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: "Item name"),
+              ),
+              TextField(
+                controller: brandController,
+                decoration: const InputDecoration(labelText: "Brand"),
+              ),
+
+              TextField(
+                controller: quantityController,
+                decoration: const InputDecoration(labelText: "Quantity"),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton(
+                onPressed: () async {
+                  DateTime? picked = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now().add(const Duration(days: 3)),
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) {
+                    selectedDate = picked;
+                  }
+                },
+                child: const Text("Select Expiry Date"),
+              )
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty &&
+                  selectedDate != null) {
+
+                addItem(
+                  nameController.text,
+                  brandController.text.isNotEmpty
+                      ? brandController.text
+                      : "Unknown",
+                  barcodeController.text,
+                  quantityController.text.isNotEmpty
+                      ? quantityController.text
+                      : "1",
+                  selectedDate!,
+                );
+
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Add"),
+          )
+        ],
+      );
+    },
+  );
+}
+
+  Widget buildItemTile(Item item) {
+int daysOld = item.dateBought != null
+    ? daysSinceBought(item.dateBought!)
+    : 0;
+    int daysLeft = daysUntilExpiry(item.expiryDate);
+
+    String status;
+    Color color;
+
+    if (daysLeft <= 1) {
+      status = "Eat soon!";
+      color = Colors.red;
+    } else if (daysOld > 5) {
+      status = "Old";
+      color = Colors.orange;
+    } else {
+      status = "Fresh";
+      color = Colors.green;
+    }
+
+    return Card(
+      child: ListTile(
+        title: Text(item.name),
+        subtitle: Text(
+          "Bought $daysOld days ago • Expires in $daysLeft days",
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            status,
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+
+        onTap:() => showEditDialog(item),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text("Fridge Scanner"),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+      body: Column(
+  children: [
+    Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: TextField(
+        decoration: const InputDecoration(
+          labelText: "Search items...",
+          prefixIcon: Icon(Icons.search),
+          border: OutlineInputBorder(),
         ),
+        onChanged: searchItems,
       ),
+    ),
+    Expanded(
+      child: filteredItems.isEmpty
+          ? const Center(child: Text("No items found"))
+          : ListView.builder(
+              itemCount: filteredItems.length,
+              itemBuilder: (context, index) {
+                return buildItemTile(filteredItems[index]);
+              },
+            ),
+    ),
+  ],
+),
       floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
+        onPressed: showAddItemDialog,
         child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      ),
+      
     );
   }
+  
+void deleteItem(String id) {
+    dbRef.child(id).remove();
+  }
+
+  void updateItem(Item item) {
+    dbRef.child(item.id).update(item.toMap());
+  }
+
+  void showEditDialog(Item item) {
+    TextEditingController nameController =
+        TextEditingController(text: item.name);
+    TextEditingController quantityController =
+        TextEditingController(text: item.quantity);
+
+    showDialog(
+      context: context, // ✅ NOW WORKS
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Edit Item"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: "Item name"),
+              ),
+              TextField(
+                controller: quantityController,
+                decoration: const InputDecoration(labelText: "Quantity"),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                deleteItem(item.id); // ✅ NOW FOUND
+                Navigator.pop(context);
+              },
+              child: const Text("Delete",
+                  style: TextStyle(color: Colors.red)),
+            ),
+            TextButton(
+              onPressed: () {
+                final updatedItem = Item(
+                  id: item.id,
+                  name: nameController.text,
+                  brand: item.brand,
+                  barcode: item.barcode,
+                  quantity: quantityController.text,
+                  expiryDate: item.expiryDate,
+                  dateBought: item.dateBought,
+                );
+
+                updateItem(updatedItem); 
+                Navigator.pop(context);
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  
 }
