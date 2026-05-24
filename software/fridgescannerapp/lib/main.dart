@@ -84,8 +84,8 @@ void initState() {
   super.initState();
 
   dbRef.onValue.listen((event) {
+    final start = DateTime.now();
     final data = event.snapshot.value;
-    print("RAW DATA: $data");
 
     if (data == null) {
       setState(() => items = []);
@@ -105,6 +105,9 @@ map.forEach((key, value) {
       items = loadedItems;
       filteredItems = loadedItems;
     });
+    final end = DateTime.now();
+    print("Data loaded in ${end.difference(start).inMilliseconds} ms");
+    
   });
 }
 
@@ -314,61 +317,79 @@ void deleteItem(String id) {
   void updateItem(Item item) {
     dbRef.child(item.id).update(item.toMap());
   }
+void showEditDialog(Item item) {
+  TextEditingController nameController =
+      TextEditingController(text: item.name);
+  TextEditingController quantityController =
+      TextEditingController(text: item.quantity);
 
-  void showEditDialog(Item item) {
-    TextEditingController nameController =
-        TextEditingController(text: item.name);
-    TextEditingController quantityController =
-        TextEditingController(text: item.quantity);
+  DateTime selectedDate = item.expiryDate; 
 
-    showDialog(
-      context: context, // ✅ NOW WORKS
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Edit Item"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: "Item name"),
-              ),
-              TextField(
-                controller: quantityController,
-                decoration: const InputDecoration(labelText: "Quantity"),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                deleteItem(item.id); // ✅ NOW FOUND
-                Navigator.pop(context);
-              },
-              child: const Text("Delete",
-                  style: TextStyle(color: Colors.red)),
+  showDialog(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text("Edit Item"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: "Item name"),
             ),
-            TextButton(
-              onPressed: () {
-                final updatedItem = Item(
-                  id: item.id,
-                  name: nameController.text,
-                  brand: item.brand,
-                  barcode: item.barcode,
-                  quantity: quantityController.text,
-                  expiryDate: item.expiryDate,
-                  dateBought: item.dateBought,
+            TextField(
+              controller: quantityController,
+              decoration: const InputDecoration(labelText: "Quantity"),
+            ),
+            const SizedBox(height: 10),
+
+            // 👇 NEW BUTTON FOR EDITING DATE
+            ElevatedButton(
+              onPressed: () async {
+                DateTime? picked = await showDatePicker(
+                  context: context,
+                  initialDate: selectedDate,
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime(2100),
                 );
 
-                updateItem(updatedItem); 
-                Navigator.pop(context);
+                if (picked != null) {
+                  selectedDate = picked;
+                }
               },
-              child: const Text("Save"),
+              child: const Text("Edit Expiry Date"),
             ),
           ],
-        );
-      },
-    );
-  }
-  
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              deleteItem(item.id);
+              Navigator.pop(context);
+            },
+            child: const Text("Delete",
+                style: TextStyle(color: Colors.red)),
+          ),
+          TextButton(
+            onPressed: () {
+              final updatedItem = Item(
+                id: item.id,
+                name: nameController.text,
+                brand: item.brand,
+                barcode: item.barcode,
+                quantity: quantityController.text,
+                expiryDate: selectedDate,
+                dateBought: item.dateBought,
+              );
+
+              updateItem(updatedItem);
+              Navigator.pop(context);
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      );
+    },
+  );
+}
 }
