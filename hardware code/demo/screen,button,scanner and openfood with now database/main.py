@@ -9,8 +9,8 @@ import json
 i2c = I2C(0, scl=Pin(17), sda=Pin(16))
 oled = ssd1306.SSD1306_I2C(128, 32, i2c)
 uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
-ssid = "iotlab"
-password = "modermodemet3"
+ssid = "your ssid"
+password = "your password"
 product_info = None
 
 

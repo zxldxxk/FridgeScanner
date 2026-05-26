@@ -2,8 +2,10 @@ from machine import Pin, I2C, UART
 import network
 import ssd1306
 import time
+import ntptime
 import urequests
 import json
+import ujson
 
 # ---- SETUP ----
 i2c = I2C(0, scl=Pin(17), sda=Pin(16))
@@ -11,6 +13,9 @@ oled = ssd1306.SSD1306_I2C(128, 32, i2c)
 uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
 ssid = "your ssid"
 password = "your password"
+product_info = None
+API_URL = "https://fridgescanner-1337-default-rtdb.europe-west1.firebasedatabase.app/fridgescanner.json"
+
 
 
 # Connecting to wifi
@@ -49,8 +54,12 @@ else:
     oled.text(network_info[0], 10, 10)
     oled.show()
     time.sleep(1)
+    try:
+        ntptime.settime()
+        print("times sync")
+    except Exception as e:
+        print("sync failed", e)
 
-    
 
 
 # Buttons
@@ -63,7 +72,10 @@ btn_right = Pin(5, Pin.IN, Pin.PULL_UP)
 state = "WAIT_SCAN"
 barcode = ""
 
-day, month, year = 1, 1, 2026
+now = time.localtime()
+day, month, year = now[2], now[1], now[0]
+day2, month2, year2 = now[2], now[1], now[0]
+
 cursor = 0
 
 # ---- HELPERS ----
@@ -77,9 +89,11 @@ def days_in_month(m, y):
 
 def button_pressed(btn):
     if btn.value() == 0:
-        time.sleep_ms(150)
+        time.sleep_ms(50)
         return True
     return False
+
+
 
 def draw_date():
     oled.fill(0)
@@ -98,35 +112,60 @@ def draw_date():
 
     oled.show()
 
-def save_to_file():
-    with open("data.txt", "a") as f:
-        if product_info:
-            name = product_info.get("name_en", "Not found in database")
-            brand = product_info.get("brands","Not found in database")
-            quantity = product_info.get("product_quantity","Not found in database")
-            quantityunit = product_info.get("product_quantity_unit","Not found in database")
-        else:
-            name = "Not found in database"
-            brand = "Not found in database"
-            quantity = "Not found in database"
-            quantityunit = "Not found in database"
-        f.write(f"{barcode},{day:02d}/{month:02d}/{year},{name},{brand},{quantity},{quantityunit}\n")
-        
+def safe_text(text):
+    try:
+        return text.encode("unicode_escape").decode()
+    except:
+        return "N/A"
+    
+def send_to_server():
+    if product_info:
+        name = safe_text(product_info.get("name", "N/A"))
+        brand = safe_text(product_info.get("brand", "N/A"))
+        quantity = safe_text(product_info.get("quantity", "N/A"))
+    else:
+        name = brand = quantity = "N/A"
+
+    data = {
+        "barcode": barcode,
+        "expiryDate": "{:04d}-{:02d}-{:02d}".format(year, month, day),
+        "dateBought": "{:04d}-{:02d}-{:02d}".format(year2, month2, day2),
+        "name": name,
+        "brand": brand,
+        "quantity": quantity
+    }
+
+    try:
+        json_data = json.dumps(data)
+
+        response = urequests.post(
+            API_URL,
+            data=json_data.encode("utf-8"),  
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
+
+        print("server response:", response.text)
+        response.close()
+
+    except Exception as e:
+        print("error sending data:", e)
         
 def fetch_product(barcode):
-    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json?fields=product_name,brands,quantity,quantityunit"
     
     try:
         response = urequests.get(url)
-        data = response.json()
-        response.close()
+        try:
+            data = response.json()
+        finally:
+            response.close()
         
         if data.get("status") == 1:
-            product = data.get("Product", {})
+            product = data.get("product", {})
             
-            name = product.get("name_en", "Not found in database")
+            name = product.get("product_name", "Not found in database")
             brand = product.get("brands","Not found in database")
-            quantity = product.get("product_quantity","Not found in database")
+            quantity = product.get("quantity","Not found in database")
             quantityunit = product.get("product_quantity_unit","Not found in database")
             
             return {
@@ -142,6 +181,24 @@ def fetch_product(barcode):
     except Exception as e:
         print("error fetching product", e)
         return None
+    
+
+def read_barcode():
+    if uart.any():
+        try:
+            raw = uart.readline()  # better than read()
+            if not raw:
+                return None
+
+            data = raw.decode().strip()
+
+            # basic validation: barcode should be numeric and reasonable length
+            if data.isdigit() and len(data) == 13:
+                return data
+        except:
+            return None
+    return None
+    
 
 # ---- MAIN LOOP ----
 while True:
@@ -156,16 +213,14 @@ while True:
 
         if uart.any():
             try:
-                data = uart.read().decode().strip()
+                data = read_barcode()
                 if data:
                     barcode = data
                     print("Scanned:", barcode)
-
                     oled.fill(0)
                     oled.text("Scanned:", 0, 0)
                     oled.text(barcode[:16], 0, 12)
                     oled.show()
-                    
                     product_info = fetch_product(barcode)
                     oled.fill(0)
                     if product_info:
@@ -214,20 +269,24 @@ while True:
     # 3. SAVE
     # -------------------------
     elif state == "SAVE":
-        save_to_file()
-
+        send_to_server()
         oled.fill(0)
-        oled.text("Saved!", 30, 5)
+        oled.text("Sent!", 30, 5)
         oled.text("{:02d}/{:02d}/{:04d}".format(day, month, year), 10, 18)
         oled.show()
 
-        time.sleep(2)
+        time.sleep(0.5)
 
         # reset for next loop
-        day, month, year = 1, 1, 2026
+        now = time.localtime()
+        day, month, year = now[2], now[1], now[0]
+        day2, month2, year2 = now[2], now[1], now[0]
         cursor = 0
         barcode = ""
-
+        product_info = None
         state = "WAIT_SCAN"
 
+
     time.sleep(0.05)
+
+
